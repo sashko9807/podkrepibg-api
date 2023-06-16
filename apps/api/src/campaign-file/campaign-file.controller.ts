@@ -12,6 +12,8 @@ import {
   Body,
   Inject,
   forwardRef,
+  Res,
+  Header,
 } from '@nestjs/common'
 import { FilesInterceptor } from '@nestjs/platform-express'
 import { UseInterceptors, UploadedFiles } from '@nestjs/common'
@@ -24,6 +26,7 @@ import { CampaignFileService } from './campaign-file.service'
 import { CampaignService } from '../campaign/campaign.service'
 import { KeycloakTokenParsed, isAdmin } from '../auth/keycloak'
 import { ApiTags } from '@nestjs/swagger';
+import { createReadStream } from 'fs'
 
 @ApiTags('campaign-file')
 @Controller('campaign-file')
@@ -33,6 +36,17 @@ export class CampaignFileController {
     @Inject(forwardRef(() => PersonService)) private readonly personService: PersonService,
     private readonly campaignService: CampaignService,
   ) {}
+
+  @Post('image-upload')
+  @UseInterceptors(FilesInterceptor('file', 10, { limits: { fileSize: 20485760 } }))
+  async uploadImageToServer(
+    @UploadedFiles() files: Express.Multer.File[],
+  ){
+    const imageUpload = await this.campaignFileService.uploadImage(files[0].mimetype, files[0].originalname, files[0].buffer)
+    console.log(imageUpload)
+    if(!imageUpload) return
+    return `campaign-file/${files[0].originalname}`
+  } 
 
   @Post(':campaign_id')
   @UseInterceptors(FilesInterceptor('file', 10, { limits: { fileSize: 20485760 } })) //limit uploaded files to 5 at once and 10MB each
@@ -77,6 +91,22 @@ export class CampaignFileController {
   }
 
   @Get(':id')
+  @Public()
+  async findImage(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res,
+  ) : Promise<StreamableFile> {
+    const file = await this.campaignFileService.GetImage(id)
+    console.log(file)
+    res.set({
+      'Content-Type': file.mimetype,
+      'Content-Disposition': 'inline; filename="' + file.filename + '"',
+    })
+
+    return new StreamableFile(file.stream)
+  }
+
+  @Get(':id/attach')
   @Public()
   async findOne(
     @Param('id') id: string,

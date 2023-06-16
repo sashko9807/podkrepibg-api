@@ -10,7 +10,7 @@ import { Readable } from 'stream'
 
 @Injectable()
 export class ExpensesService {
-  private readonly bucketName: string = 'expenses-files'
+  private readonly bucketName: string = 'expenses-files123'
   constructor(private prisma: PrismaService, private s3: S3Service) {}
 
   /**

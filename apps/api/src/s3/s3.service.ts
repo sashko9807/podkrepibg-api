@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { S3 } from '@aws-sdk/client-s3'
+import { GetObjectCommand, S3 } from '@aws-sdk/client-s3'
 import { Readable } from 'stream'
+
 
 @Injectable()
 export class S3Service {
@@ -52,6 +53,25 @@ export class S3Service {
         )
         return x.ETag as string
       })
+  }
+
+  async uploadImage(bucketName: string, filename: string, mimetype: string, stream:Buffer, metadata?: Record<string, string>) {
+    return await this.s3
+    .putObject({
+      Bucket: bucketName,
+      Body: stream,
+      ContentType: mimetype,
+      Key: filename,
+      Metadata: {
+        originalName: filename,
+        ...metadata
+      }
+    })
+  }  
+
+  async getImage(bucketName: string, filename: string) {
+    const image = await this.s3.getObject({Bucket: bucketName, Key: filename})
+    return image
   }
 
   async deleteObject(bucketName: string, fileId: string): Promise<boolean | undefined> {

@@ -64,4 +64,24 @@ export class CampaignFileService {
     await this.s3.deleteObject(this.bucketName, id)
     return await this.prisma.campaignFile.delete({ where: { id } })
   }
+
+
+  async uploadImage(   
+    mimetype: string,
+    filename: string,
+    buffer: Buffer
+    ) {
+    return await this.s3.uploadImage('campaign-news-files', filename, mimetype, buffer)
+  }  
+
+  async GetImage(   
+    filename: string,
+    ) {
+      const image = await this.s3.getImage('campaign-news-files', filename)
+    return {
+      filename: image.Metadata?.originalname,
+      mimetype: image.ContentType,
+      stream: image.Body as Readable
+    }
+  }    
 }
