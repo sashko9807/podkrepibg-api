@@ -521,7 +521,7 @@ export class CampaignService {
             extPaymentMethodId: paymentData.paymentMethodId ?? '',
             billingName: paymentData.billingName,
             billingEmail: paymentData.billingEmail,
-            person: paymentData.personId ? { connect: { id: paymentData.personId } } : {},
+            person: metadata?.isAnonymous === "false" ? { connect: {id: paymentData.billingEmail } } : {},
           },
           select: donationNotificationSelect,
         })
@@ -570,24 +570,6 @@ export class CampaignService {
         `Skipping update of donation with paymentIntentId: ${paymentData.paymentIntentId}
         and status: ${newDonationStatus} because the event comes after existing donation with status: ${donation.status}`,
       )
-    }
-
-    //For successful donations we will also need to link them to user and add donation wish:
-    if (newDonationStatus === DonationStatus.succeeded) {
-      Logger.debug('metadata?.isAnonymous = ' + metadata?.isAnonymous)
-
-      if (metadata?.isAnonymous != 'true') {
-        await this.prisma.donation.update({
-          where: { id: donation.id },
-          data: {
-            person: {
-              connect: {
-                email: paymentData.billingEmail,
-              },
-            },
-          },
-        })
-      }
     }
 
     return donation.id
