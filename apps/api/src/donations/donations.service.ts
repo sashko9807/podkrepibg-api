@@ -531,8 +531,13 @@ export class DonationsService {
       })
 
       if (!existingDonation) {
+        //Apply current time to transaction date, to get unique time of donate insertion
+        const time = new Date(donationDto.createdAt).setTime(new Date().getTime())
         await tx.donation.create({
-          data: donationDto,
+          data: {
+            ...donationDto,
+            createdAt: new Date(time)
+          },
         })
 
         await this.vaultService.incrementVaultAmount(
