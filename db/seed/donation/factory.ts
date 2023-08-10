@@ -13,6 +13,7 @@ export const donationFactory = Factory.define<Donation>(({ associations }) => ({
   extCustomerId: 'cus_' + faker.random.alphaNumeric(8),
   extPaymentIntentId: 'pi_' + faker.random.alphaNumeric(8),
   extPaymentMethodId: 'pm_' + faker.random.alphaNumeric(8),
+  paymentReference:`${faker.random.alphaNumeric(4)}-${faker.random.alphaNumeric(4)}-${faker.random.alphaNumeric(4)}`,
   currency: Currency.BGN,
   personId: associations.personId || null,
   billingEmail: faker.internet.email(),
