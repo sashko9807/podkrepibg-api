@@ -62,6 +62,7 @@ describe('DonationsController', () => {
       id: '1',
       keycloakId: '00000000-0000-0000-0000-000000000015',
     },
+    paymentReference: '12AZ-13BG-11RZ'
   }
 
   beforeEach(async () => {
