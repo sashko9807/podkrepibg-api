@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateDonationWishDto } from './dto/create-donation-wish.dto'
-import { Prisma } from '@prisma/client'
+import { DonationStatus, Prisma } from '@prisma/client'
 
 @Injectable()
 export class DonationWishService {
@@ -29,6 +29,7 @@ export class DonationWishService {
           gte: minAmount,
           lte: maxAmount,
         },
+        status: DonationStatus.succeeded
       },
       createdAt: {
         gte: from,
