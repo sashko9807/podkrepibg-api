@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common'
 import { ApiQuery, ApiTags } from '@nestjs/swagger'
 import { RealmViewSupporters, ViewSupporters } from '@podkrepi-bg/podkrepi-types'
-import { Roles, RoleMatchingMode, AuthenticatedUser } from 'nest-keycloak-connect'
+import { Roles, RoleMatchingMode, AuthenticatedUser, Public } from 'nest-keycloak-connect'
 import { KeycloakTokenParsed, isAdmin } from '../auth/keycloak'
 import { BankTransactionsService } from './bank-transactions.service'
 import {
@@ -22,7 +22,9 @@ import {
   UpdateBankTransactionRefDto,
 } from './dto/bank-transactions-query-dto'
 import { CampaignService } from '../campaign/campaign.service'
-import { BankDonationStatus } from '@prisma/client'
+import { BankDonationStatus, BankTransaction } from '@prisma/client'
+import { CreateBankPaymentDto } from '../donations/dto/create-bank-payment.dto'
+import { DonationsService } from '../donations/donations.service'
 
 @ApiTags('bank-transaction')
 @Controller('bank-transaction')
@@ -30,6 +32,7 @@ export class BankTransactionsController {
   constructor(
     private readonly bankTransactionsService: BankTransactionsService,
     private readonly campaignService: CampaignService,
+    private readonly donationService: DonationsService
   ) {}
 
   @Get('list')
@@ -110,6 +113,12 @@ export class BankTransactionsController {
     }
   }
 
+  @Post('/simulate-iris-insert')
+  @Public()
+  async simulateIris(@Body() bankTransaction: CreateBankPaymentDto){
+    console.log(bankTransaction)
+    return await this.donationService.createUpdateBankPayment(bankTransaction)
+  }
   /** Manually rerun bank transactions for date interval */
   @Post('/rerun-dates')
   @Roles({

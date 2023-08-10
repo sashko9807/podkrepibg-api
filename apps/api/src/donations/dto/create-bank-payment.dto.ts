@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { Currency, DonationStatus, DonationType, PaymentProvider } from '@prisma/client'
-import { Expose } from 'class-transformer'
+import { Expose, Type } from 'class-transformer'
 import { IsDate, IsNumber, IsOptional, IsPositive, IsString, IsUUID } from 'class-validator'
 
 @Expose()
@@ -30,7 +30,8 @@ export class CreateBankPaymentDto {
   @Expose()
   @ApiProperty()
   @IsDate()
-  createdAt: Date
+  @Type(()=> Date)
+  createdAt: Date 
 
   @Expose()
   @ApiProperty()
