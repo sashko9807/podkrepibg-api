@@ -425,6 +425,7 @@ export class CampaignService {
         currency: true,
         person: { select: { firstName: true, lastName: true } },
         targetVault: { select: { name: true } },
+        paymentReference: true
       },
       skip: pageIndex && pageSize ? pageIndex * pageSize : undefined,
       take: pageSize ? pageSize : undefined,
