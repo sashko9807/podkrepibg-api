@@ -34,6 +34,9 @@ import { DonationsApiQuery } from './queries/donations.apiquery'
 import { PersonService } from '../person/person.service'
 import { CacheInterceptor } from '@nestjs/cache-manager'
 import { UseInterceptors } from '@nestjs/common'
+import { getPaymentReference } from '../campaign/helpers/payment-reference'
+import { CreateInitialDonation } from './dto/create-initial-donation.dto'
+import {randomUUID} from 'crypto'
 
 @ApiTags('donation')
 @Controller('donation')
@@ -84,6 +87,19 @@ export class DonationsController {
     Logger.debug(`Creating checkout session with data ${JSON.stringify(sessionDto)}`)
 
     return this.donationsService.createCheckoutSession(sessionDto)
+  }
+
+
+  @Post('create-donation-from-session')
+  @Public()
+  createDonationFromSession(@Body() createPaymentDto: CreateInitialDonation) {
+
+    const bankCode = getPaymentReference()
+    let paymentId = createPaymentDto.extPaymentIntentId
+    if(!paymentId) {
+      paymentId = randomUUID()
+    }
+    return this.donationsService.createDonationFromSession(createPaymentDto, bankCode, paymentId)
   }
 
   @Get('prices')
@@ -205,7 +221,6 @@ export class DonationsController {
     if (!user) {
       throw new UnauthorizedException()
     }
-
     return this.donationsService.create(createPaymentDto, user)
   }
 

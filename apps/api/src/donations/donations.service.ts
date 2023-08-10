@@ -29,6 +29,7 @@ import { donationWithPerson, DonationWithPerson } from './queries/donation.valid
 import { CreateStripePaymentDto } from './dto/create-stripe-payment.dto'
 import { ImportStatus } from '../bank-transactions-file/dto/bank-transactions-import-status.dto'
 import { DonationQueryDto } from '../common/dto/donation-query-dto'
+import { CreateInitialDonation } from './dto/create-initial-donation.dto'
 
 @Injectable()
 export class DonationsService {
@@ -473,6 +474,17 @@ export class DonationsService {
       await this.vaultService.incrementVaultAmount(donation.targetVaultId, donation.amount)
     }
 
+    return donation
+  }
+
+  async createDonationFromSession(paymentDto:CreateInitialDonation, bankCode: string, paymentId: string) {
+    const vault = await this.prisma.vault.findFirst({ where: { campaignId: paymentDto.campaignId } })
+    if(!vault) throw new Error(`Vault not found for campaign with Id ${paymentDto.campaignId}`)
+    const donation = await this.prisma.donation.upsert({ 
+      where: {extPaymentIntentId: paymentId},
+      create:  paymentDto.toEntity(bankCode, paymentId, vault.id),
+      update: {status: DonationStatus.waiting}
+  })
     return donation
   }
 
