@@ -414,6 +414,7 @@ model Donation {
   person             Person?         @relation(fields: [personId], references: [id])
   targetVault        Vault           @relation(fields: [targetVaultId], references: [id])
   DonationWish       DonationWish?
+  paymentReference   String?         @unique @map("payment_reference") @db.VarChar()
 
   @@map("donations")
 }
