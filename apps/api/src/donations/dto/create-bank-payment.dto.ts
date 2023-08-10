@@ -56,8 +56,8 @@ export class CreateBankPaymentDto {
   @Expose()
   @ApiProperty()
   @IsString()
-  @IsOptional()
-  personId: string | null
+  paymentReference: string
+
 
   billingName?: string
   billingEmail?: string

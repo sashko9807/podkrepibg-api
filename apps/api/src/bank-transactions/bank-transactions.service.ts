@@ -24,6 +24,7 @@ export class BankTransactionsService {
     private exportService: ExportService,
     private donationService: DonationsService,
     private irisBankImport: IrisTasks,
+
   ) {}
 
   /**
@@ -119,21 +120,21 @@ export class BankTransactionsService {
     return result
   }
 
-  async processDonation(bankTransaction: BankTransaction, vault: Vault, newPaymentRef: string) {
+  async processDonation(bankTransaction: BankTransaction, vault?: Vault, newPaymentRef?: string) {
     // Transform transaction to bank-payment, so that the donation service can process it
     const bankPayment: CreateBankPaymentDto = {
       amount: bankTransaction?.amount || 0,
       currency: bankTransaction?.currency || Currency.BGN,
       extCustomerId: bankTransaction?.senderIban || '',
       extPaymentIntentId: bankTransaction?.id,
+      paymentReference: bankTransaction?.description,
       createdAt: new Date(bankTransaction?.transactionDate),
       billingName: bankTransaction?.senderName || '',
       extPaymentMethodId: 'Manual Re-import',
-      targetVaultId: vault?.id,
+      targetVaultId: vault?.id ?? '',
       type: DonationType.donation,
       status: DonationStatus.succeeded,
       provider: PaymentProvider.bank,
-      personId: null,
     }
 
     // Execute as atomic transaction - fail/succeed as a whole

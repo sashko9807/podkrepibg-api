@@ -545,7 +545,7 @@ export class DonationsService {
     return await this.prisma.$transaction(async (tx) => {
       //to avoid incrementing vault amount twice we first check if there is such donation
       const existingDonation = await tx.donation.findUnique({
-        where: { extPaymentIntentId: donationDto.extPaymentIntentId },
+        where: { paymentReference: donationDto.paymentReference },
       })
 
       if (!existingDonation) {
@@ -563,7 +563,7 @@ export class DonationsService {
 
       //Donation exists, so updating with incoming donation without increasing vault amounts
       await this.prisma.donation.update({
-        where: { extPaymentIntentId: donationDto.extPaymentIntentId },
+        where: { paymentReference: donationDto.paymentReference },
         data: donationDto,
       })
       return ImportStatus.UPDATED

@@ -331,16 +331,7 @@ export class IrisTasks {
      than execute a separate one for each transaction -
      more performent and reliable approach
     */
-    const campaigns = await this.prisma.campaign.findMany({
-      where: {
-        paymentReference: {
-          in: matchedPaymentRef,
-        },
-      },
-      include: {
-        vaults: true,
-      },
-    })
+    const donations = await this.prisma.donation.findMany({where: {paymentReference: {in : matchedPaymentRef}}})
 
     for (const trx of bankTransactions) {
       if (!trx.matchedRef) {
@@ -349,16 +340,16 @@ export class IrisTasks {
       }
 
       // Campaign list won't be too large, so searching in-memory should perform better than calling the DB
-      const campaign = campaigns.find((cmpgn) => cmpgn.paymentReference === trx.matchedRef)
+      const donation = donations.find((donation) => donation.paymentReference === trx.matchedRef)
 
-      if (!campaign) {
+      if (!donation) {
         trx.bankDonationStatus = BankDonationStatus.unrecognized
         continue
       }
 
       // Parse donation
       try {
-        const bankPayment = this.prepareBankPaymentObject(trx, campaign.vaults[0])
+        const bankPayment = this.prepareBankPaymentObject(trx, donation.targetVaultId)
         await this.donationsService.createUpdateBankPayment(bankPayment)
         // Update status
         trx.bankDonationStatus = BankDonationStatus.imported
@@ -372,21 +363,21 @@ export class IrisTasks {
 
   private prepareBankPaymentObject(
     bankTransaction: Prisma.BankTransactionCreateManyInput,
-    vault: Vault,
+    vaultId: string,
   ) {
     const bankPayment: CreateBankPaymentDto = {
       amount: bankTransaction.amount || 0,
       currency: bankTransaction.currency || Currency.BGN,
       extCustomerId: bankTransaction.senderIban || '',
       extPaymentIntentId: bankTransaction.id,
+      paymentReference: bankTransaction.description,
       createdAt: new Date(bankTransaction.transactionDate),
       billingName: bankTransaction.senderName || '',
       extPaymentMethodId: this.paymentMethodId,
-      targetVaultId: vault.id,
+      targetVaultId: vaultId,
       type: DonationType.donation,
       status: DonationStatus.succeeded,
       provider: PaymentProvider.bank,
-      personId: null,
     }
 
     return bankPayment
