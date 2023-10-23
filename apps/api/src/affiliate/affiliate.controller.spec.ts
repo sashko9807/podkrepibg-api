@@ -11,7 +11,7 @@ import { VaultService } from '../vault/vault.service'
 import { NotificationModule } from '../sockets/notifications/notification.module'
 import { MarketingNotificationsModule } from '../notifications/notifications.module'
 import { ExportService } from '../export/export.service'
-import { Affiliate, Donation, Person, Prisma, Vault } from '@prisma/client'
+import { Affiliate, Donation, Prisma, Vault } from '@prisma/client'
 import { KeycloakTokenParsed } from '../auth/keycloak'
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
 import { AffiliateStatusUpdateDto } from './dto/affiliate-status-update.dto'
@@ -21,7 +21,7 @@ import { CancelAffiliateDonation } from './dto/cancel-affiliate-donation.dto'
 
 type PersonWithPayload = Prisma.PersonGetPayload<{ include: { company: true } }>
 type AffiliateWithPayload = Prisma.AffiliateGetPayload<{
-  include: { company: { include: { person: true } }; donations: true }
+  include: { donations: true; company: { include: { person: true } } }
 }>
 
 describe('AffiliateService', () => {
