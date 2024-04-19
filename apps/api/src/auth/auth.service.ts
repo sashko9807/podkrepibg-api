@@ -296,7 +296,7 @@ export class AuthService {
         helpUsImprove: registerDto.helpUsImprove ? registerDto.helpUsImprove : false,
       },
       // Store keycloakId to the person with same email
-      update: { keycloakId },
+      update: { keycloakId, registered: true },
       where: { email: registerDto.email },
     })
   }

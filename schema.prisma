@@ -52,6 +52,7 @@ model Person {
   stripeCustomerId   String?             @unique @map("stripe_customer_id")
   picture            String?             @db.VarChar(250)
   profileEnabled     Boolean             @default(true) @map("profile_enabled")
+  registered         Boolean             @default(true)
   // Used to verify some emails sent to the user
   benefactors        Benefactor[]
   beneficiaries      Beneficiary[]

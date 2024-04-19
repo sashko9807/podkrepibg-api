@@ -26,6 +26,7 @@ import { UpdatePaymentDto } from './dto/update-payment.dto'
 import { CACHE_MANAGER } from '@nestjs/cache-manager'
 import { MarketingNotificationsModule } from '../notifications/notifications.module'
 import type { PaymentWithDonation } from './types/donation'
+import { personMock } from '../person/__mock__/personMock'
 
 describe('DonationsController', () => {
   let controller: DonationsController
@@ -194,25 +195,7 @@ describe('DonationsController', () => {
     }
 
     const existingPayment = { ...mockPayment }
-    const existingTargetPerson: Person = {
-      id: '2',
-      firstName: 'string',
-      lastName: 'string',
-      email: 'string',
-      phone: 'string',
-      companyId: 'string',
-      createdAt: new Date('2022-01-01'),
-      updatedAt: new Date('2022-01-01'),
-      newsletter: false,
-      address: 'string',
-      birthday: new Date('2002-07-07'),
-      emailConfirmed: true,
-      personalNumber: 'string',
-      keycloakId: '00000000-0000-0000-0000-000000000012',
-      stripeCustomerId: 'string',
-      picture: 'string',
-      profileEnabled: true,
-    }
+    const existingTargetPerson: Person = personMock
 
     jest.spyOn(prismaMock, '$transaction').mockImplementation((callback) => callback(prismaMock))
     const mockedIncrementVaultAmount = jest
@@ -253,25 +236,7 @@ describe('DonationsController', () => {
       billingEmail: mockPayment.billingEmail as string,
     }
 
-    const existingTargetPerson: Person = {
-      id: mockDonation.personId,
-      firstName: 'string',
-      lastName: 'string',
-      email: mockPayment.billingEmail,
-      phone: 'string',
-      companyId: 'string',
-      createdAt: new Date('2022-01-01'),
-      updatedAt: new Date('2022-01-01'),
-      newsletter: false,
-      address: 'string',
-      birthday: new Date('2002-07-07'),
-      emailConfirmed: true,
-      personalNumber: 'string',
-      keycloakId: '00000000-0000-0000-0000-000000000012',
-      stripeCustomerId: 'string',
-      picture: 'string',
-      profileEnabled: true,
-    }
+    const existingTargetPerson: Person = personMock
 
     const existingPayment = { ...mockPayment, status: PaymentStatus.initial }
     const expectedUpdatedPayment = { ...existingPayment, status: PaymentStatus.succeeded }

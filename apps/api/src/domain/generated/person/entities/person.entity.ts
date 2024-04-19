@@ -39,6 +39,7 @@ export class Person {
   stripeCustomerId: string | null
   picture: string | null
   profileEnabled: boolean
+  registered: boolean
   benefactors?: Benefactor[]
   beneficiaries?: Beneficiary[]
   campaignFiles?: CampaignFile[]
