@@ -33,6 +33,7 @@ import { ForgottenPasswordMailDto } from '../email/template.interface'
 import { NewPasswordDto } from './dto/recovery-password.dto'
 import { MarketingNotificationsService } from '../notifications/notifications.service'
 import { PersonService } from '../person/person.service'
+import { createUnregisteredPersonDto } from './dto/create-unregister-person.dto'
 
 type ErrorResponse = { error: string; data: unknown }
 type KeycloakErrorResponse = { error: string; error_description: string }
@@ -314,6 +315,10 @@ export class AuthService {
       },
       // Store keycloakId to the person with same email
     })
+  }
+
+  async createUnregisteredPerson(unregisteredPerson: createUnregisteredPersonDto) {
+    return await this.prismaService.person.create({ data: unregisteredPerson })
   }
 
   async updateUser(keycloakId: string, updateDto: UpdatePersonDto) {
