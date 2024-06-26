@@ -63,6 +63,7 @@ import { AffiliateModule } from '../affiliate/affiliate.module'
 import { LoggerModule } from '../logger/logger.module'
 import { PrismaModule } from '../prisma/prisma.module'
 import { CampaignApplicationModule } from '../campaign-application/campaign-application.module'
+import { IrisPayModule } from '../iris-pay/iris-pay.module'
 
 @Module({
   imports: [
@@ -129,6 +130,7 @@ import { CampaignApplicationModule } from '../campaign-application/campaign-appl
     MarketingNotificationsModule,
     LoggerModule,
     CampaignApplicationModule,
+    IrisPayModule,
   ],
   controllers: [AppController],
   providers: [
