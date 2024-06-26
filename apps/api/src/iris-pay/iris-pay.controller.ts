@@ -1,34 +1,27 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { IrisPayService } from './iris-pay.service';
-import { CreateIrisPayDto } from './dto/create-iris-pay.dto';
-import { UpdateIrisPayDto } from './dto/update-iris-pay.dto';
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common'
+import { IrisPayService } from './iris-pay.service'
+import { IrisPayCreateWebhooKDto } from './dto/create-iris-pay.dto'
+import { Public } from 'nest-keycloak-connect'
+import { IrisCreateCustomerDto } from './dto/create-iris-customer'
+import { CreateIrisCustomerResponse } from './entities/iris-pay.types'
+import { ApiTags } from '@nestjs/swagger'
 
 @Controller('iris-pay')
+@ApiTags()
 export class IrisPayController {
   constructor(private readonly irisPayService: IrisPayService) {}
 
-  @Post()
-  create(@Body() createIrisPayDto: CreateIrisPayDto) {
-    return this.irisPayService.create(createIrisPayDto);
+  @Post('create-webhook')
+  @Public()
+  async createWebhook(@Body() irisRegisterWebhookDto: IrisPayCreateWebhooKDto): Promise<string> {
+    return await this.irisPayService.createWebhook(irisRegisterWebhookDto)
   }
 
-  @Get()
-  findAll() {
-    return this.irisPayService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.irisPayService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateIrisPayDto: UpdateIrisPayDto) {
-    return this.irisPayService.update(+id, updateIrisPayDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.irisPayService.remove(+id);
+  @Post('create-customer')
+  @Public()
+  async createCustomer(
+    @Body() irisCreateCustomerDto: IrisCreateCustomerDto,
+  ): Promise<CreateIrisCustomerResponse> {
+    return await this.irisPayService.createCustomer(irisCreateCustomerDto)
   }
 }
