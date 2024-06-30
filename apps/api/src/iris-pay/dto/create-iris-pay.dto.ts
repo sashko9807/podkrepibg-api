@@ -7,6 +7,12 @@ export class IrisPayCreateWebhooKDto {
   @IsString()
   @Expose()
   @IsOptional()
+  state: string
+
+  @ApiProperty()
+  @IsString()
+  @Expose()
+  @IsOptional()
   successUrl: string
 
   @ApiProperty()

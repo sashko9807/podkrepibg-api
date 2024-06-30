@@ -186,6 +186,10 @@ export class AppModule implements NestModule {
         path: 'paypal/webhook',
         method: RequestMethod.ALL,
       },
+      {
+        path: 'iris-pay/webhook',
+        method: RequestMethod.ALL,
+      },
     )
 
     // add HTTP request logging
