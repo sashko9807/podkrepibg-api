@@ -7,37 +7,37 @@ export class IrisCreateCustomerDto {
   @Expose()
   @IsString()
   @IsOptional()
-  companyName: string
+  companyName?: string
 
   @ApiProperty()
   @Expose()
   @ValidateIf((obj) => obj.companyName !== undefined)
   @IsString()
-  uic: string
+  uic?: string
 
   @ApiProperty()
   @Expose()
   @IsString()
   @IsOptional()
-  name: string
+  name?: string
 
   @ApiProperty()
   @Expose()
   @IsString()
   @IsOptional()
-  middleName: string
+  middleName?: string
 
   @ApiProperty()
   @Expose()
   @IsString()
   @IsOptional()
-  family: string
+  family?: string
 
   @ApiProperty()
   @Expose()
   @IsString()
   @IsOptional()
-  identityHash: string
+  identityHash?: string
 
   @ApiProperty()
   @Expose()
@@ -49,5 +49,5 @@ export class IrisCreateCustomerDto {
   @Expose()
   @IsString()
   @IsOptional()
-  webhookUrl: string
+  webhookUrl?: string
 }

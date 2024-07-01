@@ -1,18 +1,18 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { IrisPayService } from './iris-pay.service';
+import { Test, TestingModule } from '@nestjs/testing'
+import { IrisPayService } from './iris-pay.service'
 
 describe('IrisPayService', () => {
-  let service: IrisPayService;
+  let service: IrisPayService
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [IrisPayService],
-    }).compile();
+    }).compile()
 
-    service = module.get<IrisPayService>(IrisPayService);
-  });
+    service = module.get<IrisPayService>(IrisPayService)
+  })
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-});
+    expect(service).toBeDefined()
+  })
+})

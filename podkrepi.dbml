@@ -353,6 +353,11 @@ Table countries {
   cities cities [not null]
 }
 
+Table iris_customers {
+  userHash String [pk]
+  email String [not null]
+}
+
 Table vaults {
   id String [pk]
   currency Currency [not null, default: 'BGN']
