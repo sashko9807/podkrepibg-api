@@ -5,10 +5,12 @@ import { ConfigModule } from '@nestjs/config'
 import { HttpModule } from '@nestjs/axios'
 import { PrismaModule } from '../prisma/prisma.module'
 import { CampaignModule } from '../campaign/campaign.module'
+import { DonationsModule } from '../donations/donations.module'
+import { VerifyPayloadGuard } from './guards/verify-payload.guard'
 
 @Module({
-  imports: [ConfigModule, HttpModule, PrismaModule, CampaignModule],
+  imports: [ConfigModule, HttpModule, PrismaModule, CampaignModule, DonationsModule],
   controllers: [IrisPayController],
-  providers: [IrisPayService],
+  providers: [IrisPayService, VerifyPayloadGuard],
 })
 export class IrisPayModule {}

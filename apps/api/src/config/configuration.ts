@@ -47,6 +47,7 @@ export default () => ({
     banksEndPoint: process.env.IRIS_API_URL + '/banks?country=bulgaria',
     ibansEndPoint: process.env.IRIS_API_URL + '/ibans',
     transactionsEndPoint: process.env.IRIS_API_URL + '/transactions',
+    payloadSecret: process.env.PG_PAYLOAD_SECRET,
   },
   mail: {
     billingAdminEmail: process.env.BILLING_ADMIN_MAIL,

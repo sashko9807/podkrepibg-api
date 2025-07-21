@@ -16,6 +16,32 @@ import { HttpService } from '@nestjs/axios'
 import { IrisCreateCustomerDto } from './dto/create-iris-customer'
 import { PrismaService } from '../prisma/prisma.service'
 import { CampaignService } from '../campaign/campaign.service'
+import { DonationsService } from '../donations/donations.service'
+import { FinishPaymentDto } from './dto/finish-payment.dto'
+import { PaymentProvider, PaymentStatus, DonationType } from '@prisma/client'
+import { PaymentData } from '../donations/helpers/payment-intent-helpers'
+
+export interface IrisHookHash {
+  date: Date
+  payeeName: string
+  payerName: string
+  payerBank: PayeBank
+  payeeBank: PayeBank
+  description: string
+  sum: string
+  payerIban: string
+  payeeIban: string
+  id: string
+  currency: string
+  status: string
+  reasonForFail: string
+}
+
+export interface PayeBank {
+  bankHash: string
+  name: string
+  country: string
+}
 
 @Injectable()
 export class IrisPayService {
@@ -26,6 +52,7 @@ export class IrisPayService {
     private httpService: HttpService,
     private prismaService: PrismaService,
     private campaignService: CampaignService,
+    private donationsService: DonationsService,
   ) {
     this.agentHash = this.config.get<string>('IRIS_AGENT_HASH', '')
     this.irisEndpoint = this.config.get<string>('IRIS_API_URL', '')
@@ -42,6 +69,19 @@ export class IrisPayService {
 
     const webhookUrl = `${this.irisEndpoint}/createhook`
     return (await this.httpService.axiosRef.post<string>(webhookUrl, data)).data
+  }
+
+  async verifyPayment(body: { hookHash: string }) {
+    const result = await this.httpService.axiosRef.get<IrisHookHash>(
+      `${this.irisEndpoint}/status/${body.hookHash}`,
+      {
+        headers: {
+          'x-agent-hash': this.agentHash,
+        },
+      },
+    )
+
+    return result?.data
   }
 
   async createCustomer(irisCreateCustomerDto: IrisCreateCustomerDto) {
@@ -63,9 +103,11 @@ export class IrisPayService {
       createCustomerUrl,
       data,
     )
-    await this.prismaService.irisCustomer.create({
-      data: { email: irisCreateCustomerDto.email, userHash: irisCreateCustomer.data.userHash },
-    })
+    if (irisCreateCustomer?.data?.userHash) {
+      await this.prismaService.irisCustomer.create({
+        data: { email: irisCreateCustomerDto.email, userHash: irisCreateCustomer.data.userHash },
+      })
+    }
     return irisCreateCustomer.data.userHash
   }
 
@@ -91,6 +133,59 @@ export class IrisPayService {
       userHash: userHash.value,
     }
   }
+
+  async finishPaymentSession(finishPaymentDto: FinishPaymentDto): Promise<string | undefined> {
+    Logger.debug('Finishing payment session', {
+      hookHash: finishPaymentDto.hookHash,
+      status: finishPaymentDto.status,
+      campaignId: finishPaymentDto.metadata.campaignId,
+    })
+
+    // Get the campaign
+    const campaign = await this.campaignService.getCampaignById(
+      finishPaymentDto.metadata.campaignId,
+    )
+    if (!campaign) {
+      throw new Error(`Campaign not found: ${finishPaymentDto.metadata.campaignId}`)
+    }
+
+    // Transform the finish payment DTO to PaymentData structure
+    const paymentData: PaymentData = {
+      paymentIntentId: finishPaymentDto.hookHash,
+      netAmount: finishPaymentDto.amount,
+      chargedAmount: finishPaymentDto.amount,
+      currency: campaign.currency.toLowerCase(),
+      paymentProvider: PaymentProvider.irispay,
+      billingName: finishPaymentDto.billingName,
+      billingEmail: finishPaymentDto.billingEmail,
+      personId:
+        finishPaymentDto.metadata.isAnonymous === 'false' && finishPaymentDto.metadata.personId
+          ? finishPaymentDto.metadata.personId
+          : undefined,
+      type: finishPaymentDto.metadata.type,
+    }
+
+    // Map status string to PaymentStatus enum
+    const paymentStatus = this.mapStatusToPaymentStatus(finishPaymentDto.status)
+
+    // Call donationService.updateDonationPayment
+    return await this.donationsService.updateDonationPayment(campaign, paymentData, paymentStatus)
+  }
+
+  private mapStatusToPaymentStatus(status: string): PaymentStatus {
+    switch (status.toUpperCase()) {
+      case 'CONFIRMED':
+        return PaymentStatus.succeeded
+      case 'FAILED':
+        return PaymentStatus.declined
+      case 'WAITING':
+        return PaymentStatus.waiting
+      default:
+        Logger.warn(`Unknown payment status: ${status}, defaulting to waiting`)
+        return PaymentStatus.waiting
+    }
+  }
+
   remove(id: number) {
     return `This action removes a #${id} irisPay`
   }

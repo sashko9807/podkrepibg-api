@@ -700,6 +700,7 @@ Enum PaymentProvider {
   epay
   bank
   cash
+  irispay
 }
 
 Enum DocumentType {
