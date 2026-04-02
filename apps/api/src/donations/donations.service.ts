@@ -795,37 +795,53 @@ export class DonationsService {
       paymentIntentId: paymentData.paymentIntentId,
     })
 
-    //Update existing donation or create new in a transaction that
-    //also increments the vault amount and marks campaign as completed
-    //if target amount is reached
-    return await this.prisma.$transaction(async (tx) => {
-      let donationId
-      // Find donation by extPaymentIntentId
-      const existingDonation = await this.findExistingDonation(tx, paymentData)
+    const doTransaction = () =>
+      this.prisma.$transaction(async (tx) => {
+        let donationId
+        // Find donation by extPaymentIntentId
+        const existingDonation = await this.findExistingDonation(tx, paymentData)
 
-      //if missing create the donation with the incoming status
-      if (!existingDonation) {
-        const newDonation = await this.createIncomingDonation(
-          tx,
-          paymentData,
-          newDonationStatus,
-          campaign,
-        )
-        donationId = newDonation.id
-      }
-      //donation exists, so check if it is safe to update it
-      else {
-        const updatedDonation = await this.updateDonationIfAllowed(
-          tx,
-          existingDonation,
-          newDonationStatus,
-          paymentData,
-        )
-        donationId = updatedDonation?.id
-      }
+        //if missing create the donation with the incoming status
+        if (!existingDonation) {
+          const newDonation = await this.createIncomingDonation(
+            tx,
+            paymentData,
+            newDonationStatus,
+            campaign,
+          )
+          donationId = newDonation.id
+        }
+        //donation exists, so check if it is safe to update it
+        else {
+          const updatedDonation = await this.updateDonationIfAllowed(
+            tx,
+            existingDonation,
+            newDonationStatus,
+            paymentData,
+          )
+          donationId = updatedDonation?.id
+        }
 
-      return donationId
-    }) //end of the transaction scope
+        return donationId
+      }) //end of the transaction scope
+
+    try {
+      return await doTransaction()
+    } catch (error) {
+      // Handle race condition: when two Stripe webhook events (e.g. payment_intent.created
+      // and charge.succeeded) arrive simultaneously, both transactions find no existing
+      // payment and attempt to INSERT. The second one fails with a unique constraint
+      // violation (P2002) on ext_payment_intent_id. Retry once — the payment now exists
+      // and will be found and updated instead.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        Logger.warn(
+          `Concurrent webhook race for paymentIntentId: ${paymentData.paymentIntentId}. ` +
+            `Retrying as update.`,
+        )
+        return await doTransaction()
+      }
+      throw error
+    }
   }
 
   private async updateDonationIfAllowed(
@@ -958,6 +974,11 @@ export class DonationsService {
 
       return donation
     } catch (error) {
+      // Let unique constraint violations (P2002) propagate so the retry logic
+      // in updateDonationPayment can handle the race condition
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw error
+      }
       Logger.error(
         `Error while creating donation with paymentIntentId: ${paymentData.paymentIntentId} and status: ${newDonationStatus} . Error is: ${error}`,
       )
