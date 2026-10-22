@@ -77,6 +77,22 @@ export class StripeApiClient {
   ) {
     return this.stripe.paymentIntents.retrieve(id, params, options)
   }
+  confirmPaymentIntent(
+    id: string,
+    params?: Stripe.PaymentIntentConfirmParams,
+    options?: Stripe.RequestOptions,
+  ) {
+    return this.stripe.paymentIntents.confirm(id, params, options)
+  }
+
+  // ConfirmationTokens
+  retrieveConfirmationToken(
+    id: string,
+    params?: Stripe.ConfirmationTokenRetrieveParams,
+    options?: Stripe.RequestOptions,
+  ) {
+    return this.stripe.confirmationTokens.retrieve(id, params, options)
+  }
 
   // PaymentMethods
   listPaymentMethods(params: Stripe.PaymentMethodListParams, options?: Stripe.RequestOptions) {
@@ -156,10 +172,7 @@ export class StripeApiClient {
   }
 
   // Webhook Endpoints
-  listWebhookEndpoints(
-    params?: Stripe.WebhookEndpointListParams,
-    options?: Stripe.RequestOptions,
-  ) {
+  listWebhookEndpoints(params?: Stripe.WebhookEndpointListParams, options?: Stripe.RequestOptions) {
     return this.stripe.webhookEndpoints.list(params, options)
   }
 

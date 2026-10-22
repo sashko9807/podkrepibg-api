@@ -15,6 +15,7 @@ import { CancelPaymentIntentDto } from './dto/cancel-payment-intent.dto'
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto'
 import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto'
 import { UpdateSetupIntentDto } from './dto/update-setup-intent.dto'
+import { CreateDonationPaymentDto } from './dto/create-donation-payment.dto'
 import { StripeService } from './stripe.service'
 import { EditFinancialsRequests } from '@podkrepi-bg/podkrepi-types'
 import { CreateSessionDto } from '../donations/dto/create-session.dto'
@@ -99,6 +100,24 @@ export class StripeController {
   @Public()
   setupIntentToPaymentIntent(@Param('id') id: string) {
     return this.stripeService.setupIntentToPaymentIntent(id)
+  }
+
+  @Post('donation/payment-intent')
+  @ApiOperation({ summary: 'Charge a one-time donation with a Stripe ConfirmationToken' })
+  @Public()
+  createDonationPaymentIntent(@Body() dto: CreateDonationPaymentDto) {
+    return this.stripeService.createDonationPaymentIntent(dto)
+  }
+
+  @Post('donation/subscription')
+  @ApiOperation({ summary: 'Start a monthly donation with a Stripe ConfirmationToken' })
+  async createDonationSubscription(
+    @Body() dto: CreateDonationPaymentDto,
+    @AuthenticatedUser() user: KeycloakTokenParsed,
+  ) {
+    const person = await this.personService.findOneByKeycloakId(user.sub)
+    if (!person) throw new NotFoundException('Person not found for the logged in user')
+    return this.stripeService.createDonationSubscription(dto, person.id)
   }
 
   @Post('setup-intent/:id/subscription')

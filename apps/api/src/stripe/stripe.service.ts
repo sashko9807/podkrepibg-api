@@ -20,6 +20,7 @@ import { ConfigService } from '@nestjs/config'
 import { InvoiceWithPayments, StripeMetadata } from './stripe-metadata.interface'
 import { getPaymentDataFromCharge } from '../donations/helpers/payment-intent-helpers'
 import { CreateStripePaymentDto } from '../donations/dto/create-stripe-payment.dto'
+import { CreateDonationPaymentDto } from './dto/create-donation-payment.dto'
 import { RecurringDonationService } from '../recurring-donation/recurring-donation.service'
 import * as crypto from 'crypto'
 import { RealmViewSupporters } from '@podkrepi-bg/podkrepi-types'
@@ -186,6 +187,91 @@ export class StripeService {
   }
 
   /**
+   * Charge a one-time donation with a ConfirmationToken created by Stripe.js.
+   * The amount comes from the validated request, never from client-side Stripe objects.
+   * The card is not saved for future payments.
+   */
+  async createDonationPaymentIntent(dto: CreateDonationPaymentDto): Promise<DonationPaymentResult> {
+    const campaign = await this.campaignService.validateCampaignId(dto.campaignId)
+    const billingDetails = await this.getConfirmationTokenBillingDetails(dto.confirmationTokenId)
+    const customer = await this.createCustomer(billingDetails.email, billingDetails.name)
+    const currency = campaign.currency.toLowerCase()
+
+    const paymentIntent = await this.api.createPaymentIntent(
+      {
+        amount: dto.amount,
+        currency,
+        customer: customer.id,
+        payment_method_types: ['card', 'link'],
+        confirmation_token: dto.confirmationTokenId,
+        confirm: true,
+        metadata: {
+          type: dto.type,
+          campaignId: dto.campaignId,
+          personId: dto.personId ?? null,
+          isAnonymous: dto.isAnonymous ? 'true' : 'false',
+          wish: dto.wish ?? null,
+          amount: dto.amount,
+          currency,
+        },
+      },
+      // A ConfirmationToken can be used only once, so retries of the same request
+      // return the same payment instead of charging twice
+      { idempotencyKey: `${dto.confirmationTokenId}--pi` },
+    )
+    return toDonationPaymentResult(paymentIntent)
+  }
+
+  /**
+   * Start a monthly donation with a ConfirmationToken created by Stripe.js.
+   * The subscription starts incomplete and its first payment is confirmed with the token,
+   * which also saves the card as the subscription's default payment method.
+   */
+  async createDonationSubscription(
+    dto: CreateDonationPaymentDto,
+    personId: string,
+  ): Promise<DonationPaymentResult> {
+    const campaign = await this.campaignService.validateCampaignId(dto.campaignId)
+    const billingDetails = await this.getConfirmationTokenBillingDetails(dto.confirmationTokenId)
+    const customer = await this.createCustomer(billingDetails.email, billingDetails.name)
+    const product = await this.createProduct(campaign.id)
+    const currency = campaign.currency.toLowerCase()
+
+    const subscriptionPaymentIntent = await this.createSubscription(
+      {
+        type: dto.type,
+        campaignId: dto.campaignId,
+        personId,
+        isAnonymous: dto.isAnonymous ? 'true' : 'false',
+        amount: String(dto.amount),
+        currency,
+      },
+      customer,
+      product,
+      null,
+      `${dto.confirmationTokenId}--subscription`,
+    )
+
+    const paymentIntent = await this.api.confirmPaymentIntent(
+      subscriptionPaymentIntent.id,
+      { confirmation_token: dto.confirmationTokenId },
+      { idempotencyKey: `${dto.confirmationTokenId}--pi` },
+    )
+    return toDonationPaymentResult(paymentIntent)
+  }
+
+  private async getConfirmationTokenBillingDetails(
+    confirmationTokenId: string,
+  ): Promise<{ email: string; name: string }> {
+    const confirmationToken = await this.api.retrieveConfirmationToken(confirmationTokenId)
+    const billingDetails = confirmationToken.payment_method_preview?.billing_details
+    if (!billingDetails?.email) {
+      throw new BadRequestException('Email is required from the payment method')
+    }
+    return { email: billingDetails.email, name: billingDetails.name ?? '' }
+  }
+
+  /**
    * Update a payment intent for a donation
    * https://stripe.com/docs/api/payment_intents/update
    * @param inputDto Payment intent create params
@@ -241,7 +327,7 @@ export class StripeService {
     }))
   }
 
-  async createCustomer(email: string, name: string, paymentMethod: Stripe.PaymentMethod) {
+  async createCustomer(email: string, name: string, paymentMethod?: Stripe.PaymentMethod) {
     const customerLookup = await this.api.listCustomers({
       email,
     })
@@ -253,7 +339,7 @@ export class StripeService {
         {
           email,
           name,
-          payment_method: paymentMethod.id,
+          ...(paymentMethod && { payment_method: paymentMethod.id }),
         },
         { idempotencyKey: `${idempotencyKey}--customer` },
       )
@@ -286,10 +372,11 @@ export class StripeService {
     metadata: Stripe.Metadata,
     customer: Stripe.Customer,
     product: Stripe.Product,
-    paymentMethod: Stripe.PaymentMethod,
+    // Without a payment method the subscription starts incomplete and its first payment
+    // has to be confirmed by the caller
+    paymentMethod: Stripe.PaymentMethod | null,
+    idempotencyKey = `${crypto.randomUUID()}--subscription`,
   ) {
-    const idempotencyKey = crypto.randomUUID()
-
     const subscription = await this.api.createSubscription(
       {
         customer: customer.id,
@@ -303,7 +390,15 @@ export class StripeService {
             },
           },
         ],
-        default_payment_method: paymentMethod.id,
+        ...(paymentMethod
+          ? { default_payment_method: paymentMethod.id }
+          : {
+              payment_behavior: 'default_incomplete',
+              payment_settings: {
+                payment_method_types: ['card', 'link'],
+                save_default_payment_method: 'on_subscription',
+              },
+            }),
         metadata: {
           type: metadata.type,
           campaignId: metadata.campaignId,
@@ -315,7 +410,7 @@ export class StripeService {
         // Then we'll access payment_intent without expansion (it will be a string ID)
         expand: ['latest_invoice.payments.data.payment'],
       },
-      { idempotencyKey: `${idempotencyKey}--subscription` },
+      { idempotencyKey },
     )
     // In API version 2025-03-31+, invoices have a 'payments' array instead of direct payment_intent field
     const invoice = subscription.latest_invoice as InvoiceWithPayments
@@ -1170,5 +1265,15 @@ export class StripeService {
         `[Stripe] No recurring donation found to mark for conversion (subscription ${subscriptionId})`,
       )
     }
+  }
+}
+
+export type DonationPaymentResult = Pick<Stripe.PaymentIntent, 'id' | 'status' | 'client_secret'>
+
+function toDonationPaymentResult(paymentIntent: Stripe.PaymentIntent): DonationPaymentResult {
+  return {
+    id: paymentIntent.id,
+    status: paymentIntent.status,
+    client_secret: paymentIntent.client_secret,
   }
 }

@@ -16,7 +16,14 @@ import {
   ConvertSingleSubscriptionCurrencyDto,
 } from './dto/currency-conversion.dto'
 import { CreateSessionDto } from '../donations/dto/create-session.dto'
-import { BadRequestException, forwardRef, NotAcceptableException } from '@nestjs/common'
+import { CreateDonationPaymentDto } from './dto/create-donation-payment.dto'
+import {
+  BadRequestException,
+  forwardRef,
+  NotAcceptableException,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common'
 import { PersonService } from '../person/person.service'
 import { CampaignService } from '../campaign/campaign.service'
 import { MarketingNotificationsService } from '../notifications/notifications.service'
@@ -275,6 +282,182 @@ describe('StripeController', () => {
     } catch (err) {
       throw new Error(JSON.stringify(err))
     }
+  })
+
+  describe('donations with a ConfirmationToken', () => {
+    const campaignId = '6a1f6c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b'
+    const dto = {
+      confirmationTokenId: 'ctoken_123',
+      campaignId,
+      amount: 2000,
+      type: 'donation',
+      isAnonymous: false,
+      personId: 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e',
+    } as CreateDonationPaymentDto
+    const user: KeycloakTokenParsed = {
+      sub: '00000000-0000-0000-0000-000000000013',
+      'allowed-origins': [],
+      email: 'test@podkrepi.bg',
+    }
+
+    beforeEach(() => {
+      prismaMock.campaign.findFirst.mockResolvedValue({
+        id: campaignId,
+        allowDonationOnComplete: false,
+        state: CampaignState.active,
+        currency: Currency.EUR,
+        title: 'active-campaign',
+      } as Campaign)
+      apiMock.retrieveConfirmationToken.mockResolvedValue({
+        id: 'ctoken_123',
+        payment_method_preview: {
+          billing_details: { email: 'donor@podkrepi.bg', name: 'Donor Name' },
+        },
+      } as any)
+      apiMock.createPaymentIntent.mockResolvedValue({
+        id: 'pi_123',
+        status: 'succeeded',
+        client_secret: 'pi_123_secret',
+        customer: 'cus_1',
+      } as any)
+    })
+
+    it('charges a one-time donation with the amount from the request', async () => {
+      await expect(controller.createDonationPaymentIntent(dto)).resolves.toEqual({
+        id: 'pi_123',
+        status: 'succeeded',
+        client_secret: 'pi_123_secret',
+      })
+
+      expect(apiMock.retrieveConfirmationToken).toHaveBeenCalledWith('ctoken_123')
+      expect(apiMock.createPaymentIntent).toHaveBeenCalledWith(
+        {
+          amount: 2000,
+          currency: 'eur',
+          customer: 1,
+          payment_method_types: ['card', 'link'],
+          confirmation_token: 'ctoken_123',
+          confirm: true,
+          metadata: {
+            type: 'donation',
+            campaignId,
+            personId: dto.personId,
+            isAnonymous: 'false',
+            wish: null,
+            amount: 2000,
+            currency: 'eur',
+          },
+        },
+        { idempotencyKey: 'ctoken_123--pi' },
+      )
+      expect(apiMock.attachPaymentMethod).not.toHaveBeenCalled()
+    })
+
+    it('creates a customer without a payment method for a new donor', async () => {
+      apiMock.listCustomers.mockResolvedValueOnce({ data: [] } as any)
+      apiMock.createCustomer.mockResolvedValueOnce({ id: 'cus_new' } as any)
+
+      await controller.createDonationPaymentIntent(dto)
+
+      expect(apiMock.createCustomer).toHaveBeenCalledWith(
+        { email: 'donor@podkrepi.bg', name: 'Donor Name' },
+        expect.anything(),
+      )
+      expect(apiMock.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ customer: 'cus_new' }),
+        expect.anything(),
+      )
+    })
+
+    it('does not charge a campaign that cannot accept donations', async () => {
+      prismaMock.campaign.findFirst.mockResolvedValue({
+        id: campaignId,
+        allowDonationOnComplete: false,
+        state: CampaignState.complete,
+        currency: Currency.EUR,
+      } as Campaign)
+
+      await expect(controller.createDonationPaymentIntent(dto)).rejects.toThrow(
+        new NotAcceptableException('Campaign cannot accept donations in state: complete'),
+      )
+      expect(apiMock.createPaymentIntent).not.toHaveBeenCalled()
+    })
+
+    it('does not charge without an email in the payment details', async () => {
+      apiMock.retrieveConfirmationToken.mockResolvedValue({
+        id: 'ctoken_123',
+        payment_method_preview: { billing_details: { email: null, name: 'Donor Name' } },
+      } as any)
+
+      await expect(controller.createDonationPaymentIntent(dto)).rejects.toThrow(BadRequestException)
+      expect(apiMock.createPaymentIntent).not.toHaveBeenCalled()
+    })
+
+    it('starts an incomplete subscription for the logged in user and confirms its first payment', async () => {
+      prismaMock.person.findFirst.mockResolvedValue({ id: 'person-of-user' } as any)
+      apiMock.retrievePaymentIntent.mockResolvedValue({ id: 'pi_test123' } as any)
+      apiMock.confirmPaymentIntent.mockResolvedValue({
+        id: 'pi_test123',
+        status: 'requires_action',
+        client_secret: 'pi_test123_secret',
+      } as any)
+
+      await expect(controller.createDonationSubscription(dto, user)).resolves.toEqual({
+        id: 'pi_test123',
+        status: 'requires_action',
+        client_secret: 'pi_test123_secret',
+      })
+
+      const [subscriptionParams, subscriptionOptions] = apiMock.createSubscription.mock.calls[0]
+      expect(subscriptionParams).toMatchObject({
+        customer: 1,
+        payment_behavior: 'default_incomplete',
+        payment_settings: {
+          payment_method_types: ['card', 'link'],
+          save_default_payment_method: 'on_subscription',
+        },
+        // The person comes from the logged in user, not from the request
+        metadata: { campaignId, personId: 'person-of-user', isAnonymous: 'false' },
+      })
+      expect(subscriptionParams).not.toHaveProperty('default_payment_method')
+      expect(subscriptionParams.items?.[0].price_data).toMatchObject({
+        unit_amount: 2000,
+        currency: 'eur',
+      })
+      expect(subscriptionOptions).toEqual({ idempotencyKey: 'ctoken_123--subscription' })
+      expect(apiMock.confirmPaymentIntent).toHaveBeenCalledWith(
+        'pi_test123',
+        { confirmation_token: 'ctoken_123' },
+        { idempotencyKey: 'ctoken_123--pi' },
+      )
+    })
+
+    it('does not start a subscription without a person for the logged in user', async () => {
+      prismaMock.person.findFirst.mockResolvedValue(null)
+
+      await expect(controller.createDonationSubscription(dto, user)).rejects.toThrow(
+        NotFoundException,
+      )
+      expect(apiMock.createSubscription).not.toHaveBeenCalled()
+    })
+
+    it('rejects invalid requests', async () => {
+      const validate = (body: object) =>
+        new ValidationPipe({
+          transform: true,
+          transformOptions: { excludeExtraneousValues: true },
+        }).transform(body, { type: 'body', metatype: CreateDonationPaymentDto })
+
+      await expect(validate(dto)).resolves.toBeDefined()
+      await expect(validate({ ...dto, amount: 99 })).rejects.toThrow(BadRequestException)
+      await expect(validate({ ...dto, amount: 10.5 })).rejects.toThrow(BadRequestException)
+      await expect(validate({ ...dto, confirmationTokenId: 'seti_123' })).rejects.toThrow(
+        BadRequestException,
+      )
+      await expect(validate({ ...dto, campaignId: 'not-a-uuid' })).rejects.toThrow(
+        BadRequestException,
+      )
+    })
   })
 
   describe('currency conversion endpoints', () => {
