@@ -96,35 +96,90 @@ export class StripeService {
     paymentMethod: Stripe.PaymentMethod,
     customer: Stripe.Customer,
   ): Promise<Stripe.PaymentMethod> {
-    const fingerprint = paymentMethod.card?.fingerprint
+    const existingMethods = await this.api.listPaymentMethods({
+      customer: customer.id,
+      type: 'card',
+      limit: 100,
+    })
 
-    if (fingerprint) {
-      // Check if the customer already has a payment method with the same card fingerprint
-      const existingMethods = await this.api.listPaymentMethods({
-        customer: customer.id,
-        type: 'card',
-      })
+    // The newly entered card always wins, even if a card with the same number is already saved.
+    // Card fingerprints only cover the card number, so a reissued card (new expiry date) or
+    // changed billing details would otherwise be silently replaced by the stale saved card.
+    // A brand-new customer already has the payment method attached on creation.
+    const idempotencyKey = crypto.randomUUID()
+    const activePaymentMethod =
+      existingMethods.data.find((pm) => pm.id === paymentMethod.id) ??
+      (await this.api.attachPaymentMethod(
+        paymentMethod.id,
+        {
+          customer: customer.id,
+        },
+        { idempotencyKey: `${idempotencyKey}--pm` },
+      ))
 
-      const existingMatch = existingMethods.data.find((pm) => pm.card?.fingerprint === fingerprint)
+    const fingerprint = activePaymentMethod.card?.fingerprint
+    if (!fingerprint) return activePaymentMethod
 
-      if (existingMatch) {
-        Logger.debug(
-          `[Stripe] Reusing existing payment method ${existingMatch.id} for customer ${customer.id} ` +
-            `(same card fingerprint: ${fingerprint})`,
-        )
-        return existingMatch
-      }
+    const duplicates = existingMethods.data.filter(
+      (pm) => pm.id !== activePaymentMethod.id && pm.card?.fingerprint === fingerprint,
+    )
+    for (const duplicate of duplicates) {
+      await this.replaceDuplicatePaymentMethod(customer, duplicate.id, activePaymentMethod.id)
     }
 
-    // No existing match found — attach the new payment method
-    const idempotencyKey = crypto.randomUUID()
-    return await this.api.attachPaymentMethod(
-      paymentMethod.id,
-      {
-        customer: customer.id,
-      },
-      { idempotencyKey: `${idempotencyKey}--pm` },
-    )
+    return activePaymentMethod
+  }
+
+  /**
+   * Moves the customer's subscriptions (and the customer's default payment method, which
+   * subscriptions without their own default fall back to) off an outdated payment method
+   * and detaches it.
+   * Best effort — a failure here must not block the donation that is being made.
+   */
+  private async replaceDuplicatePaymentMethod(
+    customer: Stripe.Customer,
+    oldPaymentMethodId: string,
+    newPaymentMethodId: string,
+  ) {
+    const customerId = customer.id
+    try {
+      // Without a status filter Stripe returns all subscriptions that are not canceled
+      const subscriptions = await this.api.listSubscriptions({ customer: customerId, limit: 100 })
+      for (const subscription of subscriptions.data) {
+        if (paymentMethodId(subscription.default_payment_method) !== oldPaymentMethodId) continue
+
+        await this.api.updateSubscription(subscription.id, {
+          default_payment_method: newPaymentMethodId,
+        })
+        Logger.debug(
+          `[Stripe] Moved subscription ${subscription.id} from payment method ${oldPaymentMethodId} ` +
+            `to ${newPaymentMethodId}`,
+        )
+      }
+
+      if (
+        paymentMethodId(customer.invoice_settings?.default_payment_method) === oldPaymentMethodId
+      ) {
+        await this.api.updateCustomer(customerId, {
+          invoice_settings: { default_payment_method: newPaymentMethodId },
+        })
+        Logger.debug(
+          `[Stripe] Moved default payment method of customer ${customerId} from ` +
+            `${oldPaymentMethodId} to ${newPaymentMethodId}`,
+        )
+      }
+
+      await this.api.detachPaymentMethod(oldPaymentMethodId)
+      Logger.debug(
+        `[Stripe] Detached payment method ${oldPaymentMethodId} from customer ${customerId} ` +
+          `(replaced by ${newPaymentMethodId} with the same card fingerprint)`,
+      )
+    } catch (error) {
+      Logger.warn(
+        `[Stripe] Unable to replace payment method ${oldPaymentMethodId} with ${newPaymentMethodId} ` +
+          `for customer ${customerId}: ${error}`,
+      )
+    }
   }
 
   async setupIntentToPaymentIntent(setupIntentId: string): Promise<Stripe.PaymentIntent> {
@@ -1171,4 +1226,8 @@ export class StripeService {
       )
     }
   }
+}
+
+function paymentMethodId(paymentMethod: string | Stripe.PaymentMethod | null | undefined) {
+  return typeof paymentMethod === 'string' ? paymentMethod : paymentMethod?.id
 }

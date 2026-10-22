@@ -649,4 +649,121 @@ describe('StripeService', () => {
       expect(result.data[0].status).toBe('canceled')
     })
   })
+
+  describe('findOrAttachPaymentMethod', () => {
+    const customer = { id: 'cus_1' } as any
+    const newCard = {
+      id: 'pm_new',
+      card: { fingerprint: 'fp_1', exp_month: 1, exp_year: 2030 },
+    } as any
+    const oldCard = {
+      id: 'pm_old',
+      card: { fingerprint: 'fp_1', exp_month: 1, exp_year: 2025 },
+    } as any
+    const otherCard = { id: 'pm_other', card: { fingerprint: 'fp_2' } } as any
+
+    beforeEach(() => {
+      apiMock.listPaymentMethods.mockReset()
+      apiMock.attachPaymentMethod.mockReset()
+      apiMock.listSubscriptions.mockReset()
+      apiMock.updateSubscription.mockReset()
+      apiMock.updateCustomer.mockReset()
+      apiMock.detachPaymentMethod.mockReset()
+      apiMock.attachPaymentMethod.mockResolvedValue(newCard)
+      apiMock.listSubscriptions.mockResolvedValue({ data: [] } as any)
+    })
+
+    it('attaches the new card instead of reusing a saved card with the same number', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [oldCard, otherCard] } as any)
+
+      const result = await service.findOrAttachPaymentMethod(newCard, customer)
+
+      expect(result).toBe(newCard)
+      expect(apiMock.attachPaymentMethod).toHaveBeenCalledWith(
+        'pm_new',
+        { customer: 'cus_1' },
+        expect.anything(),
+      )
+      expect(apiMock.detachPaymentMethod).toHaveBeenCalledTimes(1)
+      expect(apiMock.detachPaymentMethod).toHaveBeenCalledWith('pm_old')
+    })
+
+    it('adds a card with a different number without touching the saved cards', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [otherCard] } as any)
+
+      const result = await service.findOrAttachPaymentMethod(newCard, customer)
+
+      expect(result).toBe(newCard)
+      expect(apiMock.attachPaymentMethod).toHaveBeenCalledTimes(1)
+      expect(apiMock.updateSubscription).not.toHaveBeenCalled()
+      expect(apiMock.detachPaymentMethod).not.toHaveBeenCalled()
+    })
+
+    it('moves subscriptions using the old card to the new card before detaching it', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [oldCard] } as any)
+      apiMock.listSubscriptions.mockResolvedValue({
+        data: [
+          { id: 'sub_old', default_payment_method: 'pm_old' },
+          { id: 'sub_other', default_payment_method: 'pm_other' },
+        ],
+      } as any)
+
+      await service.findOrAttachPaymentMethod(newCard, customer)
+
+      expect(apiMock.updateSubscription).toHaveBeenCalledTimes(1)
+      expect(apiMock.updateSubscription).toHaveBeenCalledWith('sub_old', {
+        default_payment_method: 'pm_new',
+      })
+      expect(apiMock.detachPaymentMethod).toHaveBeenCalledWith('pm_old')
+    })
+
+    it('moves the customer default to the new card if it was the old card', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [oldCard] } as any)
+
+      await service.findOrAttachPaymentMethod(newCard, {
+        id: 'cus_1',
+        invoice_settings: { default_payment_method: 'pm_old' },
+      } as any)
+
+      expect(apiMock.updateCustomer).toHaveBeenCalledWith('cus_1', {
+        invoice_settings: { default_payment_method: 'pm_new' },
+      })
+      expect(apiMock.detachPaymentMethod).toHaveBeenCalledWith('pm_old')
+    })
+
+    it('leaves the customer default alone if it is a different card', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [oldCard] } as any)
+
+      await service.findOrAttachPaymentMethod(newCard, {
+        id: 'cus_1',
+        invoice_settings: { default_payment_method: 'pm_other' },
+      } as any)
+
+      expect(apiMock.updateCustomer).not.toHaveBeenCalled()
+      expect(apiMock.detachPaymentMethod).toHaveBeenCalledWith('pm_old')
+    })
+
+    it('keeps the old card attached if its subscriptions cannot be moved', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [oldCard] } as any)
+      apiMock.listSubscriptions.mockResolvedValue({
+        data: [{ id: 'sub_old', default_payment_method: 'pm_old' }],
+      } as any)
+      apiMock.updateSubscription.mockRejectedValue(new Error('stripe error'))
+
+      const result = await service.findOrAttachPaymentMethod(newCard, customer)
+
+      expect(result).toBe(newCard)
+      expect(apiMock.detachPaymentMethod).not.toHaveBeenCalled()
+    })
+
+    it('does not attach again a card that is already attached to the customer', async () => {
+      apiMock.listPaymentMethods.mockResolvedValue({ data: [newCard] } as any)
+
+      const result = await service.findOrAttachPaymentMethod(newCard, customer)
+
+      expect(result).toBe(newCard)
+      expect(apiMock.attachPaymentMethod).not.toHaveBeenCalled()
+      expect(apiMock.detachPaymentMethod).not.toHaveBeenCalled()
+    })
+  })
 })

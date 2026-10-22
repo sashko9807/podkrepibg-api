@@ -89,6 +89,13 @@ export class StripeApiClient {
   ) {
     return this.stripe.paymentMethods.attach(id, params, options)
   }
+  detachPaymentMethod(
+    id: string,
+    params?: Stripe.PaymentMethodDetachParams,
+    options?: Stripe.RequestOptions,
+  ) {
+    return this.stripe.paymentMethods.detach(id, params, options)
+  }
 
   // Customers
   listCustomers(params: Stripe.CustomerListParams, options?: Stripe.RequestOptions) {
@@ -96,6 +103,9 @@ export class StripeApiClient {
   }
   createCustomer(params: Stripe.CustomerCreateParams, options?: Stripe.RequestOptions) {
     return this.stripe.customers.create(params, options)
+  }
+  updateCustomer(id: string, params: Stripe.CustomerUpdateParams, options?: Stripe.RequestOptions) {
+    return this.stripe.customers.update(id, params, options)
   }
 
   // Products
@@ -116,6 +126,13 @@ export class StripeApiClient {
     options?: Stripe.RequestOptions,
   ) {
     return this.stripe.subscriptions.cancel(id, params, options)
+  }
+  updateSubscription(
+    id: string,
+    params: Stripe.SubscriptionUpdateParams,
+    options?: Stripe.RequestOptions,
+  ) {
+    return this.stripe.subscriptions.update(id, params, options)
   }
   retrieveSubscription(
     id: string,
@@ -156,10 +173,7 @@ export class StripeApiClient {
   }
 
   // Webhook Endpoints
-  listWebhookEndpoints(
-    params?: Stripe.WebhookEndpointListParams,
-    options?: Stripe.RequestOptions,
-  ) {
+  listWebhookEndpoints(params?: Stripe.WebhookEndpointListParams, options?: Stripe.RequestOptions) {
     return this.stripe.webhookEndpoints.list(params, options)
   }
 
