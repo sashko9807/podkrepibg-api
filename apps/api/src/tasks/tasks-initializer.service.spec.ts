@@ -18,6 +18,7 @@ import { EmailService } from '../email/email.service'
 import { TemplateService } from '../email/template.service'
 import { MarketingNotificationsModule } from '../notifications/notifications.module'
 import { PaymentSessionService } from '../iris-pay/services/payment-session.service'
+import { IrisPayService } from '../iris-pay/iris-pay.service'
 
 describe('ImportTransactionsTask', () => {
   let taskService: TasksInitializer
@@ -67,6 +68,7 @@ describe('ImportTransactionsTask', () => {
         EmailService,
         TemplateService,
         { provide: PaymentSessionService, useValue: paymentSessionServiceMock },
+        { provide: IrisPayService, useValue: { reconcileSucceededPayments: jest.fn() } },
       ],
     })
       .overrideProvider(PersonService)
@@ -108,8 +110,15 @@ describe('ImportTransactionsTask', () => {
         'purge-expired-payment-sessions',
         expect.anything(),
       )
+      expect(scheduler.addCronJob).toHaveBeenCalledWith(
+        'reconcile-iris-payments',
+        expect.anything(),
+      )
       expect(scheduler.getIntervals()).toEqual(['import-bank-transactions'])
-      expect(Array.from(scheduler.getCronJobs().keys())).toEqual(['purge-expired-payment-sessions'])
+      expect(Array.from(scheduler.getCronJobs().keys())).toEqual([
+        'purge-expired-payment-sessions',
+        'reconcile-iris-payments',
+      ])
     })
   })
 })

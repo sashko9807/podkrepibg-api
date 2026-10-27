@@ -19,6 +19,7 @@ import { IrisCreateCustomerDto } from './dto/create-iris-customer'
 import { PrismaService } from '../prisma/prisma.service'
 import { CampaignService } from '../campaign/campaign.service'
 import { DonationsService } from '../donations/donations.service'
+import { VaultService } from '../vault/vault.service'
 import { FinishPaymentDto } from './dto/finish-payment.dto'
 import { PaymentProvider, PaymentStatus, PaymentType, Prisma } from '@prisma/client'
 import { PaymentData } from '../donations/helpers/payment-intent-helpers'
@@ -39,6 +40,7 @@ export class IrisPayService {
     private prismaService: PrismaService,
     private campaignService: CampaignService,
     private donationsService: DonationsService,
+    private vaultService: VaultService,
   ) {
     this.irisWebhookSecret = this.config.get<string>('iris.irisWebhookSecret', '')
   }
@@ -324,6 +326,66 @@ export class IrisPayService {
     }
   }
 
+  // IRIS reports CONFIRMED as soon as the payer authorises the transfer, but
+  // the payer's bank can still reject it afterwards (e.g. Revolut cancelling
+  // an outgoing SEPA transfer), at which point IRIS flips the payment to
+  // FAILED. IRIS only calls our webhook once, so we re-poll recently
+  // succeeded payments and revert the ones IRIS now reports as failed.
+  async reconcileSucceededPayments(since: Date): Promise<number> {
+    const payments = await this.prismaService.payment.findMany({
+      where: {
+        provider: PaymentProvider.irispay,
+        status: PaymentStatus.succeeded,
+        createdAt: { gte: since },
+      },
+      include: { donations: true },
+    })
+
+    let reverted = 0
+    for (const payment of payments) {
+      try {
+        const irisResult = await this.verifyPayment({ hookHash: payment.extPaymentIntentId })
+        if (!irisResult) continue
+        if (this.mapStatusToPaymentStatus(irisResult.status) !== PaymentStatus.declined) continue
+
+        if (await this.revertSucceededPayment(payment)) {
+          reverted++
+          Logger.warn(
+            `IRIS payment ${payment.id} was reported FAILED after being confirmed. Reverted to declined.`,
+          )
+        }
+        if (payment.donations[0]) {
+          await this.storeIrisMetadata(payment.donations[0].id, irisResult)
+        }
+      } catch (error) {
+        Logger.warn(`IRIS reconcile failed for paymentId=${payment.id}: ${error}`)
+      }
+    }
+    return reverted
+  }
+
+  // Bypasses `shouldAllowStatusChange` on purpose: succeeded is final for every
+  // other provider, and IRIS is the only one where the bank can retract a
+  // confirmed payment. Returns false if the payment was already changed.
+  private async revertSucceededPayment(
+    payment: Prisma.PaymentGetPayload<{ include: { donations: true } }>,
+  ): Promise<boolean> {
+    return this.prismaService.$transaction(async (tx) => {
+      const { count } = await tx.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.succeeded },
+        data: { status: PaymentStatus.declined },
+      })
+      if (count === 0) return false
+
+      for (const donation of payment.donations) {
+        if (donation.amount > 0) {
+          await this.vaultService.decrementVaultAmount(donation.targetVaultId, donation.amount, tx)
+        }
+      }
+      return true
+    })
+  }
+
   // Reads the most recent `reasonForFail` we persisted for this donation.
   // Used on the final-state idempotency short-circuit so the client gets
   // the same `reason` it would have received from a full finalize call.
@@ -343,6 +405,7 @@ export class IrisPayService {
         payeeName: irisResult.payeeName,
         payeeIban: irisResult.payeeIban,
         payeeBank: irisResult.payeeBank,
+        status: irisResult.status,
         reasonForFail: irisResult.reasonForFail,
         irisTransactionId: irisResult.id,
         verifiedAt: new Date().toISOString(),

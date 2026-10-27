@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../prisma/prisma.service'
 import { CampaignService } from '../campaign/campaign.service'
 import { DonationsService } from '../donations/donations.service'
+import { VaultService } from '../vault/vault.service'
 import { PaymentStatus, PaymentProvider, Currency, DonationType } from '@prisma/client'
 import { FinishPaymentDto } from './dto/finish-payment.dto'
 import {
@@ -36,6 +37,8 @@ describe('IrisPayService', () => {
   const mockPrismaService = {
     payment: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      updateMany: jest.fn(),
     },
     donationMetadata: {
       upsert: jest.fn().mockResolvedValue({}),
@@ -53,6 +56,10 @@ describe('IrisPayService', () => {
     updateDonationPayment: jest.fn(),
   }
 
+  const mockVaultService = {
+    decrementVaultAmount: jest.fn(),
+  }
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,6 +69,7 @@ describe('IrisPayService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: CampaignService, useValue: mockCampaignService },
         { provide: DonationsService, useValue: mockDonationsService },
+        { provide: VaultService, useValue: mockVaultService },
       ],
     }).compile()
 
@@ -486,6 +494,101 @@ describe('IrisPayService', () => {
       await expect(service.finishPaymentSession(finishPaymentDto)).rejects.toThrow(
         'Campaign not found: campaign-123',
       )
+    })
+  })
+
+  describe('reconcileSucceededPayments', () => {
+    const since = new Date('2026-10-23T00:00:00Z')
+    const succeededPayment = {
+      id: 'pay-1',
+      extPaymentIntentId: 'hook-1',
+      status: PaymentStatus.succeeded,
+      donations: [{ id: 'don-1', amount: 100, targetVaultId: 'vault-1' }],
+    }
+
+    beforeEach(() => {
+      mockPrismaService.payment.findMany.mockResolvedValue([succeededPayment])
+      mockPrismaService.$transaction.mockImplementation(async (cb) => cb(mockPrismaService))
+    })
+
+    it('only looks at succeeded IRIS payments created since the given date', async () => {
+      mockIrisApi.getPaymentStatus.mockResolvedValue({ status: 'CONFIRMED' })
+
+      await service.reconcileSucceededPayments(since)
+
+      expect(mockPrismaService.payment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            provider: PaymentProvider.irispay,
+            status: PaymentStatus.succeeded,
+            createdAt: { gte: since },
+          },
+        }),
+      )
+    })
+
+    it('reverts a confirmed payment that IRIS now reports as FAILED and decrements the vault', async () => {
+      mockIrisApi.getPaymentStatus.mockResolvedValue({ status: 'FAILED', reasonForFail: null })
+      mockPrismaService.payment.updateMany.mockResolvedValue({ count: 1 })
+
+      const reverted = await service.reconcileSucceededPayments(since)
+
+      expect(reverted).toBe(1)
+      expect(mockIrisApi.getPaymentStatus).toHaveBeenCalledWith('hook-1')
+      expect(mockPrismaService.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'pay-1', status: PaymentStatus.succeeded },
+        data: { status: PaymentStatus.declined },
+      })
+      expect(mockVaultService.decrementVaultAmount).toHaveBeenCalledWith(
+        'vault-1',
+        100,
+        mockPrismaService,
+      )
+      expect(mockPrismaService.donationMetadata.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: {
+            extraData: expect.objectContaining({
+              iris: expect.objectContaining({ status: 'FAILED' }),
+            }),
+          },
+        }),
+      )
+    })
+
+    it('leaves payments IRIS still reports as CONFIRMED untouched', async () => {
+      mockIrisApi.getPaymentStatus.mockResolvedValue({ status: 'CONFIRMED' })
+
+      const reverted = await service.reconcileSucceededPayments(since)
+
+      expect(reverted).toBe(0)
+      expect(mockPrismaService.payment.updateMany).not.toHaveBeenCalled()
+      expect(mockVaultService.decrementVaultAmount).not.toHaveBeenCalled()
+    })
+
+    it('does not decrement the vault if the payment was already changed concurrently', async () => {
+      mockIrisApi.getPaymentStatus.mockResolvedValue({ status: 'FAILED' })
+      mockPrismaService.payment.updateMany.mockResolvedValue({ count: 0 })
+
+      const reverted = await service.reconcileSucceededPayments(since)
+
+      expect(reverted).toBe(0)
+      expect(mockVaultService.decrementVaultAmount).not.toHaveBeenCalled()
+    })
+
+    it('keeps going when IRIS fails for one payment', async () => {
+      mockPrismaService.payment.findMany.mockResolvedValue([
+        { ...succeededPayment, id: 'pay-err', extPaymentIntentId: 'hook-err' },
+        succeededPayment,
+      ])
+      mockIrisApi.getPaymentStatus
+        .mockRejectedValueOnce(new Error('timeout'))
+        .mockResolvedValueOnce({ status: 'FAILED' })
+      mockPrismaService.payment.updateMany.mockResolvedValue({ count: 1 })
+
+      const reverted = await service.reconcileSucceededPayments(since)
+
+      expect(reverted).toBe(1)
+      expect(mockPrismaService.payment.updateMany).toHaveBeenCalledTimes(1)
     })
   })
 })

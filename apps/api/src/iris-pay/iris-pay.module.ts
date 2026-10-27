@@ -8,6 +8,7 @@ import { JwtModule } from '@nestjs/jwt'
 import { PrismaModule } from '../prisma/prisma.module'
 import { CampaignModule } from '../campaign/campaign.module'
 import { DonationsModule } from '../donations/donations.module'
+import { VaultModule } from '../vault/vault.module'
 import { PaymentSessionService } from './services/payment-session.service'
 import { PaymentSessionGuard } from './guards/payment-session.guard'
 
@@ -19,9 +20,10 @@ import { PaymentSessionGuard } from './guards/payment-session.guard'
     PrismaModule,
     CampaignModule,
     DonationsModule,
+    VaultModule,
   ],
   controllers: [IrisPayController],
   providers: [IrisPayService, IrisPayApiClient, PaymentSessionService, PaymentSessionGuard],
-  exports: [PaymentSessionService],
+  exports: [PaymentSessionService, IrisPayService],
 })
 export class IrisPayModule {}

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config'
 import { Cron, SchedulerRegistry } from '@nestjs/schedule'
 import { CronJob } from 'cron'
 import { PaymentSessionService } from '../iris-pay/services/payment-session.service'
+import { IrisPayService } from '../iris-pay/iris-pay.service'
 
 // Schedules all background tasks
 @Injectable()
@@ -13,6 +14,7 @@ export class TasksInitializer {
     private readonly config: ConfigService,
     private schedulerRegistry: SchedulerRegistry,
     private readonly paymentSessionService: PaymentSessionService,
+    private readonly irisPayService: IrisPayService,
   ) {}
 
   /* DYNAMICALY SCHEDULED TASKS */
@@ -27,6 +29,11 @@ export class TasksInitializer {
       this.initPurgeExpiredPaymentSessionsTask()
     } catch (e) {
       Logger.error('Failed to initialize PurgeExpiredPaymentSessionsTask', e)
+    }
+    try {
+      this.initReconcileIrisPaymentsTask()
+    } catch (e) {
+      Logger.error('Failed to initialize ReconcileIrisPaymentsTask', e)
     }
   }
 
@@ -60,6 +67,27 @@ export class TasksInitializer {
         await this.paymentSessionService.purgeExpiredSessions()
       } catch (e) {
         Logger.error('An error occured while purging expired payment sessions \n', e)
+      }
+    })
+
+    this.schedulerRegistry.addCronJob(jobName, job)
+    job.start()
+
+    Logger.debug(`${jobName} task registered with cron '${expression}'`)
+  }
+
+  initReconcileIrisPaymentsTask() {
+    const jobName = 'reconcile-iris-payments'
+    const defaultCron = '30 */2 * * *'
+    const expression = this.config.get<string>('tasks.iris_reconcile.cron', defaultCron)
+    const lookbackDays = Number(this.config.get<number>('tasks.iris_reconcile.lookback_days', 3))
+
+    const job = new CronJob(expression, async () => {
+      try {
+        const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
+        await this.irisPayService.reconcileSucceededPayments(since)
+      } catch (e) {
+        Logger.error('An error occured while reconciling IRIS payments \n', e)
       }
     })
 
